@@ -8,7 +8,8 @@ export async function onRequest(context) {
         });
     }
 
-    const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json`;
+    // &headers=1 を追加して1行目（No, お題, 表示...）のみをヘッダーとして明示指定
+    const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&headers=1`;
 
     try {
         const res = await fetch(url);
@@ -19,7 +20,7 @@ export async function onRequest(context) {
 
         const rows = data.table.rows || [];
 
-        // --- セル値の安全な取得関数 ---
+        // セル値の取得ヘルパー
         const getVal = (rowObj, colIdx) => {
             if (!rowObj || !rowObj.c || !rowObj.c[colIdx]) return "";
             const cell = rowObj.c[colIdx];
@@ -27,21 +28,20 @@ export async function onRequest(context) {
         };
 
         // --- 1. ON-AIR フラグの取得（G2セル）---
-        // rows[1] が スプレッドシートの 2行目
-        // G列は index 6 (A=0, B=1, C=2, D=3, E=4, F=5, G=6)
-        const rawOnAirValue = getVal(rows[1], 6);
+        // &headers=1 指定により、rows[0] がスプレッドシートの2行目(G2セル)になります
+        const rawOnAirValue = getVal(rows[0], 6); // G列 = index 6
         const normalizedVal = String(rawOnAirValue).trim().toLowerCase();
         const isOnAir = ["1", "true", "on"].includes(normalizedVal);
 
-        // --- 2. お題データの抽出 (2行目以降) ---
+        // --- 2. お題データの抽出 (スプレッドシート2行目以降) ---
         const topics = [];
 
-        // i = 1 (スプレッドシートの2行目) からループスタート
-        for (let i = 1; i < rows.length; i++) {
+        // i = 0 (rows[0] = スプレッドシートの2行目) からスタート
+        for (let i = 0; i < rows.length; i++) {
             const rowObj = rows[i];
             if (!rowObj) continue;
 
-            const id = getVal(rowObj, 0) || i;               // A列: No.
+            const id = getVal(rowObj, 0) || (i + 1);            // A列: No.
             const topicText = String(getVal(rowObj, 1)).trim(); // B列: お題
             const isCandidate = String(getVal(rowObj, 2)).trim() === "1"; // C列: 表示
             const isTalking = String(getVal(rowObj, 3)).trim() === "1";   // D列: トーク中
