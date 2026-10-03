@@ -11,7 +11,7 @@
             padding: 0;
             background-color: #0f172a;
             color: #ffffff;
-            font-family: sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
             overflow: hidden;
             display: flex;
             justify-content: center;
@@ -41,17 +41,23 @@
 
         .node.talking circle {
             stroke: #fbbf24;
-            stroke-width: 5px;
-            filter: drop-shadow(0px 0px 18px #fbbf24);
+            stroke-width: 6px;
+            filter: drop-shadow(0px 0px 24px #fbbf24);
         }
 
         .node text {
-            font-size: 14px;
-            font-weight: bold;
+            font-size: 18px;
+            /* 文字サイズ大きめ */
+            font-weight: 700;
             fill: #ffffff;
             text-anchor: middle;
             pointer-events: none;
             user-select: none;
+        }
+
+        .node.talking text {
+            font-size: 20px;
+            /* トーク中は文字も少し大きく */
         }
     </style>
 </head>
@@ -76,8 +82,8 @@
         // D3 物理シミュレーション初期化
         simulation = d3.forceSimulation(nodes)
             .force("center", d3.forceCenter(width / 2, height / 2))
-            .force("charge", d3.forceManyBody().strength(-30))
-            .force("collide", d3.forceCollide().radius(d => d.r + 5).iterations(3))
+            .force("charge", d3.forceManyBody().strength(-40))
+            .force("collide", d3.forceCollide().radius(d => d.r + 8).iterations(3))
             .on("tick", ticked);
 
         function ticked() {
@@ -85,11 +91,44 @@
                 .attr("transform", d => `translate(${d.x},${d.y})`);
         }
 
+        // 文字列を 7 文字ごとに分割する確実な関数
+        function splitTextToLines(text, maxCharsPerLine = 7) {
+            if (!text) return [];
+            const lines = [];
+            let str = String(text).trim();
+
+            while (str.length > 0) {
+                lines.push(str.substring(0, maxCharsPerLine));
+                str = str.substring(maxCharsPerLine);
+            }
+            return lines;
+        }
+
+        // SVGテキスト要素に折り返したtspanを描画する関数
+        function renderWrappedText(textSelection) {
+            textSelection.each(function (d) {
+                const el = d3.select(this);
+                el.selectAll("tspan").remove(); // 描画前に既存の行をクリア
+
+                const lines = splitTextToLines(d.text, 7); // 7文字ごとに改行
+                const lineHeight = 22; // 行間(px)
+                const totalHeight = (lines.length - 1) * lineHeight;
+
+                lines.forEach((line, i) => {
+                    const yOffset = (i * lineHeight) - (totalHeight / 2);
+                    el.append("tspan")
+                        .attr("x", 0)
+                        .attr("y", yOffset)
+                        .text(line);
+                });
+            });
+        }
+
         // データの更新・描画処理
         function updateVisualization(topics) {
-            // お題の数に応じて丸の半径(r)を動的に変化（例: 最小45px ~ 最大90px）
+            // お題の数に応じて丸の半径(r)を変化（最小70px〜最大110px）
             const count = topics.length || 1;
-            const radius = Math.max(45, Math.min(90, 300 / Math.sqrt(count)));
+            const radius = Math.max(70, Math.min(110, 360 / Math.sqrt(count)));
 
             // 既存ノードとの突合・更新
             const newNodes = topics.map(t => {
@@ -107,20 +146,20 @@
 
             nodes = newNodes;
 
-            // 物理シミュレーションの対象を更新
+            // 物理シミュレーションの更新
             simulation.nodes(nodes);
 
-            // トーク中(isTalking)の丸は中央へ強くひきつける力を設定
-            simulation.force("x", d3.forceX(d => d.isTalking ? width / 2 : width / 2).strength(d => d.isTalking ? 0.3 : 0.01));
-            simulation.force("y", d3.forceY(d => d.isTalking ? height / 2 : height / 2).strength(d => d.isTalking ? 0.3 : 0.01));
-            simulation.force("collide", d3.forceCollide().radius(d => d.r + 8));
+            // トーク中(isTalking)の丸は中央へ強力に惹きつける
+            simulation.force("x", d3.forceX(width / 2).strength(d => d.isTalking ? 0.35 : 0.01));
+            simulation.force("y", d3.forceY(height / 2).strength(d => d.isTalking ? 0.35 : 0.01));
+            simulation.force("collide", d3.forceCollide().radius(d => d.r + 10));
             simulation.alpha(0.3).restart();
 
             // D3 データバインド
             const nodeSelection = svg.selectAll(".node")
                 .data(nodes, d => d.id);
 
-            // 削除（E列=1等で消えた丸はふわっと消去）
+            // 削除（消化済などで消えたお題）
             nodeSelection.exit()
                 .transition().duration(800)
                 .style("opacity", 0)
@@ -135,18 +174,19 @@
                 .attr("r", d => d.r)
                 .attr("fill", d => d.color);
 
-            enter.append("text")
-                .attr("dy", ".35em")
-                .text(d => d.text.length > 10 ? d.text.substring(0, 10) + "..." : d.text);
+            enter.append("text"); // 空のtext要素を追加
 
             enter.transition().duration(500).style("opacity", 1);
 
-            // 更新
+            // 更新（新規＋既存要素の両方に適用）
             const merged = enter.merge(nodeSelection);
             merged.attr("class", d => `node ${d.isTalking ? 'talking' : ''}`);
             merged.select("circle")
                 .transition().duration(300)
                 .attr("r", d => d.r);
+
+            // テキスト描画の適用
+            merged.select("text").call(renderWrappedText);
         }
 
         // 3秒おきにCloudflare FunctionsのAPIをポーリング
