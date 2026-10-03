@@ -51,6 +51,7 @@
             font-weight: 700;
             fill: #ffffff;
             text-anchor: middle;
+            dominant-baseline: central;
             pointer-events: none;
             user-select: none;
         }
@@ -91,34 +92,67 @@
                 .attr("transform", d => `translate(${d.x},${d.y})`);
         }
 
-        // 文字列を 7 文字ごとに分割する確実な関数
-        function splitTextToLines(text, maxCharsPerLine = 7) {
-            if (!text) return [];
+        // 指定文字数で折り返し（省略せず全文を行に分割）
+        function wrapTextToLines(text, maxCharsPerLine) {
+            const str = String(text ?? "").trim();
+            if (!str || maxCharsPerLine < 1) return [];
             const lines = [];
-            let str = String(text).trim();
-
-            while (str.length > 0) {
-                lines.push(str.substring(0, maxCharsPerLine));
-                str = str.substring(maxCharsPerLine);
+            for (let i = 0; i < str.length; i += maxCharsPerLine) {
+                lines.push(str.slice(i, i + maxCharsPerLine));
             }
             return lines;
         }
 
-        // SVGテキスト要素に折り返したtspanを描画する関数
+        // 丸の半径から 1 行あたりのおおよその文字数を見積もる
+        function estimateCharsPerLine(radius, fontSize) {
+            const usableWidth = radius * 1.55;
+            const charWidth = fontSize * 0.92;
+            return Math.max(4, Math.floor(usableWidth / charWidth));
+        }
+
+        // 丸の中に収まるようフォントサイズと行数を調整しつつ全文を折り返す
+        function layoutTextInCircle(text, radius, isTalking) {
+            let fontSize = isTalking ? 20 : 18;
+            const lineHeightEm = 1.22;
+            const minFontSize = 11;
+
+            while (fontSize >= minFontSize) {
+                const maxChars = estimateCharsPerLine(radius, fontSize);
+                const lines = wrapTextToLines(text, maxChars);
+                const maxLines = Math.max(1, Math.floor((radius * 1.7) / (fontSize * lineHeightEm)));
+                if (lines.length <= maxLines) {
+                    return { lines, fontSize, lineHeightEm };
+                }
+                fontSize -= 1;
+            }
+
+            const maxChars = estimateCharsPerLine(radius, minFontSize);
+            return {
+                lines: wrapTextToLines(text, maxChars),
+                fontSize: minFontSize,
+                lineHeightEm
+            };
+        }
+
+        // SVGテキスト要素に折り返した tspan を描画する
         function renderWrappedText(textSelection) {
             textSelection.each(function (d) {
                 const el = d3.select(this);
-                el.selectAll("tspan").remove(); // 描画前に既存の行をクリア
+                el.text(null);
+                el.selectAll("tspan").remove();
+                el.attr("y", 0);
+                el.style("font-size", null);
 
-                const lines = splitTextToLines(d.text, 7); // 7文字ごとに改行
-                const lineHeight = 22; // 行間(px)
-                const totalHeight = (lines.length - 1) * lineHeight;
+                const { lines, fontSize, lineHeightEm } = layoutTextInCircle(d.text, d.r, d.isTalking);
+                if (lines.length === 0) return;
+
+                el.style("font-size", `${fontSize}px`);
+                const startDyEm = -((lines.length - 1) / 2) * lineHeightEm;
 
                 lines.forEach((line, i) => {
-                    const yOffset = (i * lineHeight) - (totalHeight / 2);
                     el.append("tspan")
                         .attr("x", 0)
-                        .attr("y", yOffset)
+                        .attr("dy", i === 0 ? `${startDyEm}em` : `${lineHeightEm}em`)
                         .text(line);
                 });
             });
