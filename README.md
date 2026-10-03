@@ -15,7 +15,7 @@ cp .dev.vars.example .dev.vars
 
 `.dev.vars` に本番と同じ `SPREADSHEET_ID` を設定してください（スプレッドシート URL の `/d/` と `/edit` の間の ID）。`.dev.vars` は Git に含めません。
 
-スピーカー表示用: リポジトリに同梱の `speakers/speakers.yaml` をそのまま使えます（秘密情報は含みません）。上書きしたいときは `speakers/speakers.yaml.example` を参考に編集してください。
+スピーカー表示用: リポジトリに同梱の `speakers/speakers.yaml` を編集します（秘密情報は含みません。名前・アイコン URL は環境変数から読み込みます）。
 
 `.dev.vars` に `SPEAKER1_NAME` / `SPEAKER2_NAME` と、任意で `SPEAKER1_ICON_PATH` / `SPEAKER2_ICON_PATH` を設定します。
 
