@@ -15,11 +15,7 @@ cp .dev.vars.example .dev.vars
 
 `.dev.vars` に本番と同じ `SPREADSHEET_ID` を設定してください（スプレッドシート URL の `/d/` と `/edit` の間の ID）。`.dev.vars` は Git に含めません。
 
-スピーカー表示用:
-
-```bash
-cp speakers/speakers.yaml.example speakers/speakers.yaml
-```
+スピーカー表示用: リポジトリに同梱の `speakers/speakers.yaml` をそのまま使えます（秘密情報は含みません）。上書きしたいときは `speakers/speakers.yaml.example` を参考に編集してください。
 
 `.dev.vars` に `SPEAKER1_NAME` / `SPEAKER2_NAME` と、任意で `SPEAKER1_ICON_PATH` / `SPEAKER2_ICON_PATH` を設定します。
 
@@ -91,4 +87,15 @@ npm run dev
 
 ## 本番デプロイ
 
-Cloudflare Pages にリポジトリを接続している場合は、通常は push でデプロイされます。環境変数 `SPREADSHEET_ID` は Cloudflare ダッシュボード側で設定してください。
+Cloudflare Pages にリポジトリを接続している場合は、通常は **push でデプロイ**されます。ローカル（`wrangler pages dev`）と **同じコード・同じ API** が動きます。環境ごとの `if (local)` のような分岐はありません。
+
+本番がローカルと違って見えるときは、次を確認してください。
+
+1. **最新コミットがデプロイされているか**（Pages の Deployments）
+2. **環境変数**（Settings → Environment variables）。ローカルの `.dev.vars` と同じキーを **Production** に設定する:
+   - `SPREADSHEET_ID`（必須）
+   - `SPEAKER1_NAME` / `SPEAKER2_NAME`
+   - `SPEAKER1_ICON_PATH` / `SPEAKER2_ICON_PATH`（任意）
+3. **`speakers/speakers.yaml` がデプロイに含まれているか**（リポジトリにコミット済みであること）。ファイルが無くても API は既定の SPEAKER1/2 定義にフォールバックしますが、名前・アイコンは環境変数が必須です。
+
+反映後、ブラウザでハードリロード（キャッシュ削除）してください。

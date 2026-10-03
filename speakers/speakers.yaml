@@ -1,0 +1,7 @@
+speakers:
+  - label: SPEAKER1
+    nameEnv: SPEAKER1_NAME
+    iconPathEnv: SPEAKER1_ICON_PATH
+  - label: SPEAKER2
+    nameEnv: SPEAKER2_NAME
+    iconPathEnv: SPEAKER2_ICON_PATH

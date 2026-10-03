@@ -29,6 +29,12 @@ export function stripQuotes(value) {
     return String(value ?? "").replace(/^["']|["']$/g, "").trim();
 }
 
+/** speakers.yaml が無い環境（未デプロイ等）でも .dev.vars / Pages 環境変数だけで動く既定構成 */
+export const DEFAULT_SPEAKER_ENTRIES = [
+    { label: "SPEAKER1", nameEnv: "SPEAKER1_NAME", iconPathEnv: "SPEAKER1_ICON_PATH" },
+    { label: "SPEAKER2", nameEnv: "SPEAKER2_NAME", iconPathEnv: "SPEAKER2_ICON_PATH" }
+];
+
 export function resolveEnvString(env, envKey) {
     const key = stripQuotes(envKey);
     if (!key) return "";
@@ -40,8 +46,10 @@ export function resolveEnvString(env, envKey) {
 export async function loadSpeakersConfig(context) {
     const yamlUrl = new URL("/speakers/speakers.yaml", context.request.url);
     const yamlRes = await fetch(yamlUrl);
-    if (!yamlRes.ok) return [];
-    return parseSpeakersYaml(await yamlRes.text());
+    if (!yamlRes.ok) return DEFAULT_SPEAKER_ENTRIES;
+
+    const parsed = parseSpeakersYaml(await yamlRes.text());
+    return parsed.length > 0 ? parsed : DEFAULT_SPEAKER_ENTRIES;
 }
 
 export async function getSpeakerEntry(context, label) {
