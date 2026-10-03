@@ -20,9 +20,39 @@
         }
 
         #off-air {
-            font-size: 2rem;
-            font-weight: bold;
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 2.5rem;
+            width: min(720px, 92vw);
+            padding: 2rem;
+            text-align: center;
+            z-index: 20;
+        }
+
+        #off-air h1 {
+            margin: 0;
+            font-size: clamp(1.75rem, 4.5vw, 2.75rem);
+            font-weight: 800;
+            line-height: 1.35;
+            color: #ffffff;
+        }
+
+        .off-air-notice h2 {
+            margin: 0 0 1rem;
+            font-size: 1.25rem;
+            font-weight: 700;
             color: #94a3b8;
+        }
+
+        #off-air-notice-body {
+            margin: 0;
+            font-size: clamp(1.05rem, 2.5vw, 1.35rem);
+            font-weight: 500;
+            line-height: 1.75;
+            color: #e2e8f0;
+            white-space: pre-line;
         }
 
         #canvas {
@@ -31,6 +61,8 @@
             position: absolute;
             top: 0;
             left: 0;
+            z-index: 1;
+            pointer-events: none;
         }
 
         .node circle {
@@ -60,12 +92,53 @@
             font-size: 20px;
             /* トーク中は文字も少し大きく */
         }
+
+        .speaker-name {
+            text-anchor: middle;
+            font-size: 16px;
+            font-weight: 700;
+            fill: #ffffff;
+        }
+
+        .speaker-avatar circle {
+            stroke: rgba(255, 255, 255, 0.4);
+            stroke-width: 2px;
+            fill: #334155;
+        }
+
+        .speaker-fallback {
+            text-anchor: middle;
+            dominant-baseline: central;
+            font-size: 28px;
+            font-weight: 700;
+            fill: #ffffff;
+            pointer-events: none;
+        }
+
+        .speaker-image {
+            pointer-events: none;
+        }
+
+        .program-title text {
+            text-anchor: middle;
+            dominant-baseline: central;
+            font-weight: 800;
+            fill: #ffffff;
+            pointer-events: none;
+            user-select: none;
+        }
     </style>
 </head>
 
 <body>
 
-    <div id="off-air">番組準備中... (ON-AIR Off)</div>
+    <div id="off-air">
+        <h1 id="off-air-welcome"></h1>
+        <section class="off-air-notice" aria-label="番組からのお知らせ">
+            <h2>番組からのお知らせ</h2>
+            <p id="off-air-notice-body"></p>
+        </section>
+    </div>
     <svg id="canvas"></svg>
 
     <script>
@@ -73,23 +146,247 @@
         const height = window.innerHeight;
         const colors = ["#f43f5e", "#8b5cf6", "#06b6d4", "#10b981", "#f59e0b", "#ec4899"];
 
-        let nodes = [];
+        // A列の通番から色を決める（端末・再描画に依存しない）
+        function colorForTopicId(id) {
+            const n = parseInt(String(id), 10);
+            const idx = Number.isNaN(n) ? 0 : n;
+            return colors[((idx % colors.length) + colors.length) % colors.length];
+        }
+
+        let topicNodes = [];
+        let speakerNodes = [];
+        let programTitleNode = null;
+        let speakers = [];
         let simulation;
 
         const svg = d3.select("#canvas")
             .attr("width", width)
             .attr("height", height);
 
-        // D3 物理シミュレーション初期化
-        simulation = d3.forceSimulation(nodes)
+        const topicsLayer = svg.append("g").attr("id", "topics-layer");
+        const titleLayer = svg.append("g").attr("id", "title-layer");
+        const speakersLayer = svg.append("g").attr("id", "speakers-layer");
+
+        // ラベル・名前込みのスピーカー全体が他要素と重ならないよう、衝突半径を大きめに取る
+        function speakerCollideRadius(circleRadius) {
+            const halfW = circleRadius + 20;
+            const halfH = circleRadius + 52;
+            return Math.hypot(halfW, halfH);
+        }
+
+        // タイトル文字列が収まる長方形（中心基準の半幅・半高さ）
+        function programTitleBounds(text, fontSize) {
+            const halfW = Math.min(width * 0.48, (text.length * fontSize * 0.62) / 2 + 12);
+            const halfH = fontSize * 0.55 + 10;
+            return { halfW, halfH };
+        }
+
+        function collideRadius(d) {
+            if (d.kind === "programTitle") return 0;
+            if (d.kind === "speaker") return d.collideR;
+            return d.r + (d.isTalking ? 10 : 8);
+        }
+
+        // 円（お題・スピーカー）がタイトル長方形の外側に出るよう押し出す
+        function clampCircleOutsideRect(x, y, circleR, rectCx, rectCy, halfW, halfH, gap) {
+            const expandW = halfW + gap + circleR;
+            const expandH = halfH + gap + circleR;
+            const dx = x - rectCx;
+            const dy = y - rectCy;
+
+            if (Math.abs(dx) >= expandW || Math.abs(dy) >= expandH) {
+                return { x, y };
+            }
+
+            const penX = expandW - Math.abs(dx);
+            const penY = expandH - Math.abs(dy);
+
+            if (penX < penY) {
+                return { x: rectCx + Math.sign(dx || 1) * expandW, y };
+            }
+            return { x, y: rectCy + Math.sign(dy || 1) * expandH };
+        }
+
+        function simulationNodes() {
+            const nodes = [...topicNodes, ...speakerNodes];
+            if (programTitleNode) nodes.push(programTitleNode);
+            return nodes;
+        }
+
+        function syncSimulationForces() {
+            simulation.nodes(simulationNodes());
+            simulation.force("collide", d3.forceCollide().radius(collideRadius).iterations(8));
+            simulation.force("x", d3.forceX(d => {
+                if (d.kind === "speaker") return d.slot === 0 ? width * 0.28 : width * 0.72;
+                return width / 2;
+            }).strength(d => {
+                if (d.kind === "speaker") return 0.025;
+                return d.isTalking ? 0.35 : 0.01;
+            }));
+            simulation.force("y", d3.forceY(height / 2).strength(d => {
+                if (d.kind === "speaker") return 0.025;
+                return d.isTalking ? 0.35 : 0.01;
+            }));
+        }
+
+        // D3 物理シミュレーション初期化（お題＋スピーカーを同一シミュレーションで漂わせる）
+        simulation = d3.forceSimulation([])
             .force("center", d3.forceCenter(width / 2, height / 2))
             .force("charge", d3.forceManyBody().strength(-40))
-            .force("collide", d3.forceCollide().radius(d => d.r + 8).iterations(3))
+            .force("collide", d3.forceCollide().radius(collideRadius).iterations(8))
             .on("tick", ticked);
 
+        // 固定タイトルと他要素が視覚的に重ならないよう、毎フレーム押し出す
+        function enforceTitleClearance() {
+            if (!programTitleNode) return;
+
+            const tx = programTitleNode.fx;
+            const ty = programTitleNode.fy;
+            const { halfW, halfH } = programTitleNode;
+            const gap = 10;
+
+            for (const n of [...topicNodes, ...speakerNodes]) {
+                const nr = collideRadius(n);
+                const pos = clampCircleOutsideRect(n.x, n.y, nr, tx, ty, halfW, halfH, gap);
+                n.x = pos.x;
+                n.y = pos.y;
+            }
+        }
+
         function ticked() {
-            svg.selectAll(".node")
+            enforceTitleClearance();
+
+            topicsLayer.selectAll(".node")
                 .attr("transform", d => `translate(${d.x},${d.y})`);
+            titleLayer.selectAll(".program-title")
+                .attr("transform", d => `translate(${d.x},${d.y})`);
+            speakersLayer.selectAll(".speaker")
+                .attr("transform", d => `translate(${d.x},${d.y})`);
+        }
+
+        function buildProgramTitleNode(title) {
+            const text = String(title ?? "").trim();
+            if (!text) return null;
+
+            const fontSize = Math.min(44, Math.max(28, width * 0.04));
+            const { halfW, halfH } = programTitleBounds(text, fontSize);
+            // 画面上部中央に固定（fx/fy）。長方形の上端が画面上端付近になるよう配置
+            const topMargin = 14;
+            const topY = topMargin + halfH;
+
+            return {
+                kind: "programTitle",
+                id: "program-title",
+                text,
+                fontSize,
+                halfW,
+                halfH,
+                x: width / 2,
+                y: topY,
+                fx: width / 2,
+                fy: topY
+            };
+        }
+
+        function updateProgramTitleDom() {
+            const data = programTitleNode ? [programTitleNode] : [];
+            const sel = titleLayer.selectAll(".program-title").data(data, d => d.id);
+
+            sel.exit().remove();
+
+            const enter = sel.enter().append("g").attr("class", "program-title");
+            enter.append("text");
+
+            enter.merge(sel).select("text")
+                .attr("y", 0)
+                .style("font-size", d => `${d.fontSize}px`)
+                .text(d => d.text);
+        }
+
+        function buildSpeakerNodes(speakerList, radius) {
+            return (speakerList || []).slice(0, 2).map((s, i) => {
+                const existing = speakerNodes.find(n => n.id === s.label);
+                return {
+                    kind: "speaker",
+                    id: s.label,
+                    label: s.label,
+                    name: s.name,
+                    iconUrl: s.iconUrl,
+                    slot: i,
+                    r: radius,
+                    collideR: speakerCollideRadius(radius),
+                    x: existing ? existing.x : (i === 0 ? width * 0.28 : width * 0.72) + (Math.random() - 0.5) * 80,
+                    y: existing ? existing.y : height / 2 + (Math.random() - 0.5) * 120
+                };
+            });
+        }
+
+        function updateSpeakersDom(radius) {
+            let defs = svg.select("defs");
+            if (defs.empty()) defs = svg.append("defs");
+            defs.selectAll("[id^='clip-speaker-']").remove();
+
+            speakerNodes.forEach((s) => {
+                defs.append("clipPath")
+                    .attr("id", `clip-speaker-${s.label}`)
+                    .append("circle")
+                    .attr("r", radius);
+            });
+
+            const sel = speakersLayer.selectAll(".speaker")
+                .data(speakerNodes, d => d.id);
+
+            sel.exit().remove();
+
+            const enter = sel.enter().append("g").attr("class", "speaker");
+            const avatarEnter = enter.append("g").attr("class", "speaker-avatar");
+            avatarEnter.append("circle");
+            avatarEnter.append("text").attr("class", "speaker-fallback").text("^_^");
+            enter.append("text").attr("class", "speaker-name");
+
+            const merged = enter.merge(sel);
+            merged.selectAll(".speaker-label").remove();
+            merged.select(".speaker-name")
+                .attr("y", radius + 28)
+                .text(d => d.name);
+
+            merged.select(".speaker-avatar").each(function (d) {
+                const avatar = d3.select(this);
+                avatar.select("circle").attr("r", radius);
+
+                const fallback = avatar.select(".speaker-fallback").attr("y", 0);
+                let img = avatar.select(".speaker-image");
+
+                if (!d.iconUrl) {
+                    img.remove();
+                    fallback.style("display", null);
+                    return;
+                }
+
+                if (img.empty()) {
+                    img = avatar.append("image").attr("class", "speaker-image")
+                        .on("load", function () {
+                            avatar.select(".speaker-fallback").style("display", "none");
+                        })
+                        .on("error", function () {
+                            d3.select(this).remove();
+                            avatar.select(".speaker-fallback").style("display", null);
+                        });
+                    fallback.style("display", null);
+                }
+
+                if (img.attr("href") !== d.iconUrl) {
+                    img.attr("href", d.iconUrl);
+                    fallback.style("display", null);
+                }
+
+                img
+                    .attr("x", -radius)
+                    .attr("y", -radius)
+                    .attr("width", radius * 2)
+                    .attr("height", radius * 2)
+                    .attr("clip-path", `url(#clip-speaker-${d.label})`);
+            });
         }
 
         // 指定文字数で折り返し（省略せず全文を行に分割）
@@ -159,39 +456,36 @@
         }
 
         // データの更新・描画処理
-        function updateVisualization(topics) {
+        function updateVisualization(topics, programTitle) {
             // お題の数に応じて丸の半径(r)を変化（最小70px〜最大110px）
             const count = topics.length || 1;
             const radius = Math.max(70, Math.min(110, 360 / Math.sqrt(count)));
 
-            // 既存ノードとの突合・更新
-            const newNodes = topics.map(t => {
-                const existing = nodes.find(n => n.id === t.id);
+            programTitleNode = buildProgramTitleNode(programTitle);
+
+            topicNodes = topics.map(t => {
+                const existing = topicNodes.find(n => n.id === t.id);
                 return {
+                    kind: "topic",
                     id: t.id,
                     text: t.text,
                     isTalking: t.isTalking,
                     r: radius,
-                    color: existing ? existing.color : colors[Math.floor(Math.random() * colors.length)],
+                    color: colorForTopicId(t.id),
                     x: existing ? existing.x : width / 2 + (Math.random() - 0.5) * 100,
                     y: existing ? existing.y : height / 2 + (Math.random() - 0.5) * 100
                 };
             });
 
-            nodes = newNodes;
-
-            // 物理シミュレーションの更新
-            simulation.nodes(nodes);
-
-            // トーク中(isTalking)の丸は中央へ強力に惹きつける
-            simulation.force("x", d3.forceX(width / 2).strength(d => d.isTalking ? 0.35 : 0.01));
-            simulation.force("y", d3.forceY(height / 2).strength(d => d.isTalking ? 0.35 : 0.01));
-            simulation.force("collide", d3.forceCollide().radius(d => d.r + 10));
+            speakerNodes = buildSpeakerNodes(speakers, radius);
+            syncSimulationForces();
             simulation.alpha(0.3).restart();
 
-            // D3 データバインド
-            const nodeSelection = svg.selectAll(".node")
-                .data(nodes, d => d.id);
+            updateProgramTitleDom();
+            updateSpeakersDom(radius);
+
+            const nodeSelection = topicsLayer.selectAll(".node")
+                .data(topicNodes, d => d.id);
 
             // 削除（消化済などで消えたお題）
             nodeSelection.exit()
@@ -224,18 +518,70 @@
         }
 
         // 3秒おきにCloudflare FunctionsのAPIをポーリング
+        async function fetchSpeakers() {
+            try {
+                const res = await fetch("/api/speakers");
+                const data = await res.json();
+                speakers = data.speakers || [];
+            } catch (e) {
+                console.error("Speakers fetch error:", e);
+                speakers = [];
+            }
+        }
+
+        const OFF_AIR_SPEAKER_RADIUS = 90;
+
+        function updateOffAirScreen(data) {
+            const title = (data.programTitle || "").trim() || "この番組";
+            document.getElementById("off-air-welcome").textContent = `「${title}」へようこそ！`;
+
+            const lines = Array.isArray(data.announcementLines) ? data.announcementLines : [];
+            document.getElementById("off-air-notice-body").textContent = lines.join("\n");
+        }
+
+        function updateOffAirSpeakers() {
+            const radius = OFF_AIR_SPEAKER_RADIUS;
+            speakerNodes = (speakers || []).slice(0, 2).map((s, i) => ({
+                kind: "speaker",
+                id: s.label,
+                label: s.label,
+                name: s.name,
+                iconUrl: s.iconUrl,
+                slot: i,
+                r: radius,
+                x: i === 0 ? width * 0.22 : width * 0.78,
+                y: height / 2
+            }));
+
+            topicNodes = [];
+            programTitleNode = null;
+            topicsLayer.selectAll(".node").remove();
+            titleLayer.selectAll(".program-title").remove();
+            simulation.nodes([]);
+            simulation.stop();
+
+            updateSpeakersDom(radius);
+            speakersLayer.selectAll(".speaker")
+                .attr("transform", d => `translate(${d.x},${d.y})`);
+        }
+
         async function fetchData() {
             try {
-                const res = await fetch("/api/sheets");
-                const data = await res.json();
+                const [sheetsRes] = await Promise.all([
+                    fetch("/api/sheets"),
+                    fetchSpeakers()
+                ]);
+                const data = await sheetsRes.json();
 
                 if (!data.isOnAir) {
-                    document.getElementById("off-air").style.display = "block";
-                    document.getElementById("canvas").style.display = "none";
+                    document.getElementById("off-air").style.display = "flex";
+                    document.getElementById("canvas").style.display = "block";
+                    updateOffAirScreen(data);
+                    updateOffAirSpeakers();
                 } else {
                     document.getElementById("off-air").style.display = "none";
                     document.getElementById("canvas").style.display = "block";
-                    updateVisualization(data.topics);
+                    updateVisualization(data.topics, data.programTitle);
                 }
             } catch (e) {
                 console.error("Fetch error:", e);

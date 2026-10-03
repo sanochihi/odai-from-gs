@@ -1,0 +1,10 @@
+# このファイルを .dev.vars にコピーし、本番と同じ SPREADSHEET_ID を設定してください
+SPREADSHEET_ID=your_spreadsheet_id_here
+
+# スピーカー表示名
+SPEAKER1_NAME=スピーカー1
+SPEAKER2_NAME=スピーカー2
+
+# スピーカーアイコン（/speakers/ 内のファイル、または Google Drive 共有リンク / uc?id=... など）
+SPEAKER1_ICON_PATH=/speakers/speaker1.jpg
+SPEAKER2_ICON_PATH=https://drive.google.com/uc?id=YOUR_FILE_ID

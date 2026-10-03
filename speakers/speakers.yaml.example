@@ -1,0 +1,9 @@
+# このファイルを speakers.yaml にコピーして編集してください（speakers.yaml は Git 管理外）
+# 表示名は .dev.vars の SPEAKER1_NAME / SPEAKER2_NAME から取得します
+speakers:
+  - label: SPEAKER1
+    nameEnv: SPEAKER1_NAME
+    iconPathEnv: SPEAKER1_ICON_PATH
+  - label: SPEAKER2
+    nameEnv: SPEAKER2_NAME
+    iconPathEnv: SPEAKER2_ICON_PATH

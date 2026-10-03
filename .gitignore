@@ -1,1 +1,5 @@
 .cursorrules
+node_modules/
+.dev.vars
+.wrangler/
+speakers/speakers.yaml

@@ -21,20 +21,41 @@ export async function onRequest(context) {
         const rows = data.table.rows || [];
 
         // セル値取得の補助関数
+        // gviz の rows[].c は table.cols と同じ順（A=0, B=1, …, H=7）
+        const COL = { A: 0, B: 1, C: 2, D: 3, E: 4, F: 5, G: 6, H: 7 };
+
         const getVal = (rowObj, colIdx) => {
             if (colIdx < 0 || !rowObj || !rowObj.c || !rowObj.c[colIdx]) return "";
             const cell = rowObj.c[colIdx];
-            return cell.v ?? cell.f ?? "";
+            const raw = cell.v != null && cell.v !== "" ? cell.v : cell.f;
+            if (raw == null || raw === "") return "";
+            return raw;
         };
 
-        // gviz の rows[].c は先頭(A)列が含まれないことがあるため、
-        // スプレッドシート上の列番号（A=1, B=2, …）→ 配列 index に変換する（B列 = index 0）
-        const colIndex = (colNumber1Based) => colNumber1Based - 2;
+        /** H列のテキスト（空行判定用） */
+        const getHText = (rowObj) => String(getVal(rowObj, COL.H)).trim();
+
+        /** スプレッドシート H5 以降：空行が出るまで行ごとに1行として返す */
+        const extractAnnouncementLines = () => {
+            const startIndex = 3; // 1行目ヘッダー → rows[0]=2行目 … rows[3]=5行目(H5)
+            const lines = [];
+            for (let i = startIndex; i < rows.length; i++) {
+                const line = getHText(rows[i]);
+                if (!line) break;
+                lines.push(line);
+            }
+            return lines;
+        };
 
         // --- 1. ON-AIR フラグの取得（G2セル = rows[0] の G列） ---
-        const rawOnAirValue = getVal(rows[0], colIndex(7));
+        const rawOnAirValue = getVal(rows[0], COL.G);
         const normalizedVal = String(rawOnAirValue).trim().toLowerCase();
         const isOnAir = ["1", "true", "on"].includes(normalizedVal);
+
+        // --- 番組名（H2セル = rows[0] の H列「番組名」） ---
+        const programTitle = getHText(rows[0]);
+
+        const announcementLines = extractAnnouncementLines();
 
         // --- 2. お題データの抽出（スプレッドシート2行目以降 = rows[0]から順に処理） ---
         const topics = [];
@@ -43,11 +64,11 @@ export async function onRequest(context) {
             const rowObj = rows[i];
             if (!rowObj) continue;
 
-            const id = getVal(rowObj, colIndex(1)) || getVal(rowObj, colIndex(2)) || (i + 1); // A列 or B列: No.
-            const topicText = String(getVal(rowObj, colIndex(2))).trim(); // B列: お題
-            const isCandidate = String(getVal(rowObj, colIndex(3))).trim() === "1"; // C列: 表示
-            const isTalking = String(getVal(rowObj, colIndex(4))).trim() === "1";   // D列: トーク中
-            const isCovered = String(getVal(rowObj, colIndex(5))).trim() === "1";   // E列: トーク済み
+            const id = getVal(rowObj, COL.A) || (i + 1); // A列: No.
+            const topicText = String(getVal(rowObj, COL.B)).trim(); // B列: お題
+            const isCandidate = String(getVal(rowObj, COL.C)).trim() === "1"; // C列: 表示
+            const isTalking = String(getVal(rowObj, COL.D)).trim() === "1";   // D列: トーク中
+            const isCovered = String(getVal(rowObj, COL.E)).trim() === "1";   // E列: トーク済み
 
             // B列にお題があり、C列=1、かつ E列(トーク済み)≠1 のものを追加
             if (topicText && isCandidate && !isCovered) {
@@ -59,7 +80,13 @@ export async function onRequest(context) {
             }
         }
 
-        return new Response(JSON.stringify({ isOnAir, rawOnAirValue, topics }), {
+        return new Response(JSON.stringify({
+            isOnAir,
+            rawOnAirValue,
+            programTitle,
+            announcementLines,
+            topics
+        }), {
             headers: {
                 "Content-Type": "application/json",
                 "Access-Control-Allow-Origin": "*"

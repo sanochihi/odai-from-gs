@@ -1,0 +1,10 @@
+{
+  "name": "piyochihi",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler pages dev . --port 8788 --compatibility-date=2025-01-01"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}
