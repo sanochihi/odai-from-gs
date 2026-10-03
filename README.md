@@ -1,40 +1,81 @@
-# piyochihi
+# トーク番組のお題決めアプリ
 
-D3.js のお題表示画面と、Google スプレッドシート連携 API（Cloudflare Pages Functions）のプロジェクトです。
+「ぴよとちひろの○○」Spaceの運営用に開発したアプリです。
+2人のスピーカーで、話題を選びながらトークするようなトーク番組の運営に特化したアプリです。
+
+## アプリがやっていること
+
+### ON-AIR中
+
+![ON AIR 画面](./images/ONAIR_image.png)
+
+- Google Spreadsheet からお題一覧を取得
+- 今トーク中の話題は、スポットライトが当たって真ん中にいく
+- そのテーマのトークが終わると、話題のまるが消える
+
+### ON-AIR中以外
+
+![OFF AIR 画面](./images/OFFAIR_image.png)
+
+- 番組タイトルと番組からのお知らせを表示
+
+## 使い方
+
+### Google Spreadsheet
+
+- 番組名、番組からのお知らせ、お題、状態（お題の状態＆ON-AIR状態）はすべて Google Spreadsheetで管理しています。
+- 番組のホストが Google Spreadsheet を手動で管理・更新しながら番組を進める想定です。
+
+#### シートの中身
+
+![Spreadsheet 画面](./images/GS.png)
+
+- お題一覧 - C列が1かつE列が1以外のお題を画面表示。D列が1のお題はスポットライトが当たってセンターにいく
+  - A列 = 通番
+  - B列 = お題の候補
+  - C列 = そのお題を画面表示するかのフラグ
+  - D列 = トーク中かどうかのフラグ
+  - E列 = トーク済みフラグ
+- G2セル = 1なら ON-AIR 中、それ以外は NOT ON-AIR
+- H2セル = 番組名
+- H5セル〜 = 番組からのお知らせ。ON-AIR中以外の画面に表示。（1行ごとに改行し、空行出現時点で表示ストップ）
+
+### デプロイ方法
+
+- Cloudflare の Page としてデプロイしています。
+- 環境変数に以下を設定。
+   - `SPREADSHEET_ID`（必須） : Google Spreadsheet のID　（ `https://docs.google.com/spreadsheets/d/{この部分だよ！}/edit?gid=0#gid=0` ）
+   - `SPEAKER1_NAME` / `SPEAKER2_NAME` : 画面表示用のスピーカー名
+   - `SPEAKER1_ICON_PATH` / `SPEAKER2_ICON_PATH`（任意）: スピーカーのアイコン画像のパス 
+   - 画像のパスは、Google Drive に入れた場合は `https://drive.google.com/uc?id={ここにIDを指定}）` のように指定する。
+- Google Spreadsheet は、リンクを知っている全員が参照できる権限をつけておく必要あり。
+- `SPEAKER1_ICON_PATH` / `SPEAKER1_ICON_PATH` に Google Drive に格納した画像を指定する場合も同様。
 
 ## ローカル開発
 
-本番に近い形（静的ファイル + `/api/sheets`）で確認するには **Wrangler** を使います。開発サーバーは **http://localhost:8788** で動きます。
+毎回 Cloudflare にデプロイしないと表示や挙動が確認できないのは面倒。なのでローカルでもテストできるようにしてあります。
+本番に近い形（静的ファイル + `/api/sheets`）で確認するため、 **Wrangler** を使います。開発サーバーは **http://localhost:8788** で動きます。
 
-### 初回だけ
+`.dev.vars.example` をコピーして　`.dev.vars` ファイルをプロジェクト直下に作り、変数の値を設定してください。
+
+### ローカルサーバーの起動（初回だけ）
 
 ```bash
 npm install
 cp .dev.vars.example .dev.vars
 ```
 
-`.dev.vars` に本番と同じ `SPREADSHEET_ID` を設定してください（スプレッドシート URL の `/d/` と `/edit` の間の ID）。`.dev.vars` は Git に含めません。
-
-スピーカー表示用: リポジトリに同梱の `speakers/speakers.yaml` を編集します（秘密情報は含みません。名前・アイコン URL は環境変数から読み込みます）。
-
-`.dev.vars` に `SPEAKER1_NAME` / `SPEAKER2_NAME` と、任意で `SPEAKER1_ICON_PATH` / `SPEAKER2_ICON_PATH` を設定します。
-
-- ローカル画像: `/speakers/speaker1.jpg` のように `speakers/` 配下へのパス
-- Google Drive: `https://drive.google.com/uc?id=ファイルID` や共有リンク（`/file/d/.../view`）でも可。表示時は `/api/speaker-icon/SPEAKER1` 経由で取得します（リンクを知っている全員が閲覧可にしてください）。
-
-### 開発サーバーを起動する
+### ローカルサーバーの起動
 
 ```bash
 npm run dev
 ```
 
-ブラウザで **http://localhost:8788** を開きます。
-
 Wrangler の対話メニューが出たら、そのターミナルは dev サーバー専用にしておきます（`[x]` で終了、`[b]` でブラウザを開く、など）。
 
 ---
 
-## dev サーバーを止めて再起動する
+### dev サーバーを止めて再起動する
 
 `.dev.vars` の変更や `functions/api/sheets.js`・`index.html` の反映確認のときは、**一度止めてから** 起動し直します。`.dev.vars` は起動時にだけ読み込まれます。
 
@@ -61,41 +102,3 @@ npm run dev
 **http://localhost:8788** をリロードします。
 
 ---
-
-## `Address already in use (127.0.0.1:8788)` が出るとき
-
-別ターミナルや以前のセッションで、すでに 8788 番で dev が動いている状態です。
-
-**手順 A（推奨）:** 以前 `npm run dev` を実行したターミナルを探し、そこで **Ctrl+C** してから、もう一度 `npm run dev`。
-
-**手順 B:** 8788 を使っているプロセスを確認して終了する:
-
-```bash
-lsof -i :8788
-kill $(lsof -t -i :8788)
-npm run dev
-```
-
-`kill` してもエラーが続く場合:
-
-```bash
-kill -9 $(lsof -t -i :8788)
-npm run dev
-```
-
----
-
-## 本番デプロイ
-
-Cloudflare Pages にリポジトリを接続している場合は、通常は **push でデプロイ**されます。ローカル（`wrangler pages dev`）と **同じコード・同じ API** が動きます。環境ごとの `if (local)` のような分岐はありません。
-
-本番がローカルと違って見えるときは、次を確認してください。
-
-1. **最新コミットがデプロイされているか**（Pages の Deployments）
-2. **環境変数**（Settings → Environment variables）。ローカルの `.dev.vars` と同じキーを **Production** に設定する:
-   - `SPREADSHEET_ID`（必須）
-   - `SPEAKER1_NAME` / `SPEAKER2_NAME`
-   - `SPEAKER1_ICON_PATH` / `SPEAKER2_ICON_PATH`（任意）
-3. **`speakers/speakers.yaml` がデプロイに含まれているか**（リポジトリにコミット済みであること）。ファイルが無くても API は既定の SPEAKER1/2 定義にフォールバックしますが、名前・アイコンは環境変数が必須です。
-
-反映後、ブラウザでハードリロード（キャッシュ削除）してください。
