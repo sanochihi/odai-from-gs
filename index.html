@@ -104,6 +104,13 @@
             stroke: rgba(255, 255, 255, 0.4);
             stroke-width: 2px;
             fill: #334155;
+            transition: stroke 0.3s ease, stroke-width 0.3s ease, filter 0.5s ease;
+        }
+
+        .speaker.spotlight .speaker-avatar circle {
+            stroke: #fbbf24;
+            stroke-width: 6px;
+            filter: drop-shadow(0px 0px 24px #fbbf24);
         }
 
         .speaker-fallback {
@@ -303,7 +310,7 @@
                 .text(d => d.text);
         }
 
-        function buildSpeakerNodes(speakerList, radius) {
+        function buildSpeakerNodes(speakerList, radius, spotlightBySlot) {
             return (speakerList || []).slice(0, 2).map((s, i) => {
                 const existing = speakerNodes.find(n => n.id === s.label);
                 return {
@@ -313,6 +320,7 @@
                     name: s.name,
                     iconUrl: s.iconUrl,
                     slot: i,
+                    isSpotlight: Boolean(spotlightBySlot && spotlightBySlot[i]),
                     r: radius,
                     collideR: speakerCollideRadius(radius),
                     x: existing ? existing.x : (i === 0 ? width * 0.28 : width * 0.72) + (Math.random() - 0.5) * 80,
@@ -345,6 +353,7 @@
             enter.append("text").attr("class", "speaker-name");
 
             const merged = enter.merge(sel);
+            merged.attr("class", d => `speaker${d.isSpotlight ? " spotlight" : ""}`);
             merged.selectAll(".speaker-label").remove();
             merged.select(".speaker-name")
                 .attr("y", radius + 28)
@@ -456,7 +465,7 @@
         }
 
         // データの更新・描画処理
-        function updateVisualization(topics, programTitle) {
+        function updateVisualization(topics, programTitle, spotlightBySlot) {
             // お題の数に応じて丸の半径(r)を変化（最小70px〜最大110px）
             const count = topics.length || 1;
             const radius = Math.max(70, Math.min(110, 360 / Math.sqrt(count)));
@@ -477,7 +486,7 @@
                 };
             });
 
-            speakerNodes = buildSpeakerNodes(speakers, radius);
+            speakerNodes = buildSpeakerNodes(speakers, radius, spotlightBySlot);
             syncSimulationForces();
             simulation.alpha(0.3).restart();
 
@@ -581,7 +590,10 @@
                 } else {
                     document.getElementById("off-air").style.display = "none";
                     document.getElementById("canvas").style.display = "block";
-                    updateVisualization(data.topics, data.programTitle);
+                    updateVisualization(data.topics, data.programTitle, [
+                        data.speaker1Spotlight,
+                        data.speaker2Spotlight
+                    ]);
                 }
             } catch (e) {
                 console.error("Fetch error:", e);

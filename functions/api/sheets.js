@@ -57,6 +57,16 @@ export async function onRequest(context) {
 
         const announcementLines = extractAnnouncementLines();
 
+        /** シート行番号（1始まり）の H 列。headers=1 のため rows[行-2] */
+        const getHCellAtSheetRow = (sheetRow) => {
+            const rowObj = rows[sheetRow - 2];
+            if (!rowObj) return "";
+            return String(getVal(rowObj, COL.H)).trim();
+        };
+
+        const speaker1Spotlight = getHCellAtSheetRow(18) === "1";
+        const speaker2Spotlight = getHCellAtSheetRow(19) === "1";
+
         // --- 2. お題データの抽出（スプレッドシート2行目以降 = rows[0]から順に処理） ---
         const topics = [];
 
@@ -85,6 +95,8 @@ export async function onRequest(context) {
             rawOnAirValue,
             programTitle,
             announcementLines,
+            speaker1Spotlight,
+            speaker2Spotlight,
             topics
         }), {
             headers: {
