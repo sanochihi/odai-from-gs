@@ -1,0 +1,23 @@
+# お題の丸（アイコン）サイズ設定（半径・px）
+# 表示中の C=1 お題の数に応じて medium は min〜max の間で変化（mediumRadiusBase / sqrt(数)）
+
+mediumRadiusMin: 56
+mediumRadiusMax: 88
+mediumRadiusBase: 288
+
+# 大サイズ = 中 × largeMediumScale（スポットライト中）
+largeMediumScale: 1.35
+
+# 小サイズ（C≠1）
+smallMaxRatio: 0.52
+smallMinRatio: 0.32
+smallDiameterScale: 2
+smallMinRadiusFloor: 38
+smallCapRadiusFloor: 45
+
+viewportEdgePadding: 24
+
+# スピーカーアイコン（お題サイズ変更の影響を受けない）
+speakerAvatarRadiusMin: 70
+speakerAvatarRadiusMax: 110
+speakerAvatarRadiusBase: 360

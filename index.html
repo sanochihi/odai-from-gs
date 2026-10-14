@@ -33,7 +33,7 @@
 
         #off-air h1 {
             margin: 0;
-            font-size: clamp(1.75rem, 4.5vw, 2.75rem);
+            font-size: clamp(2rem, 5.2vw, 3.15rem);
             font-weight: 800;
             line-height: 1.35;
             color: #ffffff;
@@ -41,14 +41,14 @@
 
         .off-air-notice h2 {
             margin: 0 0 1rem;
-            font-size: 1.25rem;
+            font-size: 1.45rem;
             font-weight: 700;
             color: #94a3b8;
         }
 
         #off-air-notice-body {
             margin: 0;
-            font-size: clamp(1.05rem, 2.5vw, 1.35rem);
+            font-size: clamp(1.2rem, 2.9vw, 1.55rem);
             font-weight: 500;
             line-height: 1.75;
             color: #e2e8f0;
@@ -78,8 +78,7 @@
         }
 
         .node text {
-            font-size: 18px;
-            /* 文字サイズ大きめ */
+            font-size: 22px;
             font-weight: 700;
             fill: #ffffff;
             text-anchor: middle;
@@ -89,13 +88,23 @@
         }
 
         .node.talking text {
-            font-size: 20px;
-            /* トーク中は文字も少し大きく */
+            font-size: 24px;
+        }
+
+        .node.inactive circle {
+            opacity: 0.42;
+            stroke: rgba(255, 255, 255, 0.22);
+            stroke-width: 1.5px;
+        }
+
+        .node.inactive text {
+            fill: rgba(255, 255, 255, 0.82);
+            font-weight: 600;
         }
 
         .speaker-name {
             text-anchor: middle;
-            font-size: 16px;
+            font-size: 20px;
             font-weight: 700;
             fill: #ffffff;
         }
@@ -116,7 +125,7 @@
         .speaker-fallback {
             text-anchor: middle;
             dominant-baseline: central;
-            font-size: 28px;
+            font-size: 34px;
             font-weight: 700;
             fill: #ffffff;
             pointer-events: none;
@@ -163,6 +172,7 @@
         let topicNodes = [];
         let speakerNodes = [];
         let programTitleNode = null;
+        let topicLayoutBands = null;
         let speakers = [];
         let simulation;
 
@@ -191,7 +201,72 @@
         function collideRadius(d) {
             if (d.kind === "programTitle") return 0;
             if (d.kind === "speaker") return d.collideR;
+            if (d.kind === "topic" && d.sizeTier === "small") return d.r + 6;
             return d.r + (d.isTalking ? 10 : 8);
+        }
+
+        function topicSizeTier(isActive, isTalking) {
+            if (!isActive) return "small";
+            if (isTalking) return "large";
+            return "medium";
+        }
+
+        function refreshTopicLayoutBands() {
+            const titleBottom = programTitleNode
+                ? programTitleNode.fy + programTitleNode.halfH + 32
+                : height * 0.14;
+
+            const smallBandTop = height * 0.68;
+            const mediumBandBottom = smallBandTop - 20;
+            const largeBandBottom = titleBottom + Math.max(130, (mediumBandBottom - titleBottom) * 0.36);
+            const mediumBandTop = largeBandBottom + 24;
+
+            topicLayoutBands = {
+                large: {
+                    top: titleBottom,
+                    bottom: largeBandBottom,
+                    centerY: titleBottom + (largeBandBottom - titleBottom) / 2
+                },
+                medium: {
+                    top: mediumBandTop,
+                    bottom: mediumBandBottom,
+                    centerY: mediumBandTop + (mediumBandBottom - mediumBandTop) / 2
+                },
+                small: {
+                    top: smallBandTop,
+                    bottom: height - VIEWPORT_PAD,
+                    centerY: smallBandTop + (height - VIEWPORT_PAD - smallBandTop) / 2
+                }
+            };
+        }
+
+        function topicHorizontalSpan(sizeTier) {
+            if (sizeTier === "small") {
+                return { left: 16, right: width - 16 };
+            }
+            return { left: width * 0.19, right: width * 0.81 };
+        }
+
+        function topicTargetX(d) {
+            const count = d.tierCount || 1;
+            const idx = d.tierIndex ?? 0;
+            const { left, right } = topicHorizontalSpan(d.sizeTier);
+            if (count <= 1) return width / 2;
+            return left + ((idx + 0.5) / count) * (right - left);
+        }
+
+        function topicTargetY(d) {
+            if (!topicLayoutBands) refreshTopicLayoutBands();
+            return topicLayoutBands[d.sizeTier].centerY;
+        }
+
+        function speakerAnchorPosition(slot, r, isSpotlight) {
+            const { halfW } = speakerViewportHalfExtents({ r, isSpotlight, slot });
+            const pad = VIEWPORT_PAD + 10;
+            return {
+                x: slot === 0 ? halfW + pad : width - halfW - pad,
+                y: height / 2
+            };
         }
 
         // 円（お題・スピーカー）がタイトル長方形の外側に出るよう押し出す
@@ -222,25 +297,35 @@
 
         function syncSimulationForces() {
             simulation.nodes(simulationNodes());
-            simulation.force("collide", d3.forceCollide().radius(collideRadius).iterations(8));
-            simulation.force("x", d3.forceX(d => {
-                if (d.kind === "speaker") return d.slot === 0 ? width * 0.28 : width * 0.72;
-                return width / 2;
-            }).strength(d => {
-                if (d.kind === "speaker") return 0.025;
-                return d.isTalking ? 0.35 : 0.01;
+            simulation.force("collide", d3.forceCollide().radius(collideRadius).iterations(10));
+            simulation.force("charge", d3.forceManyBody().strength(d => {
+                if (d.kind === "speaker") return -16;
+                if (d.kind === "topic") return -24;
+                return 0;
             }));
-            simulation.force("y", d3.forceY(height / 2).strength(d => {
-                if (d.kind === "speaker") return 0.025;
-                return d.isTalking ? 0.35 : 0.01;
+            simulation.force("x", d3.forceX(d => {
+                if (d.kind === "speaker") return d.anchorX;
+                if (d.kind === "topic") return topicTargetX(d);
+                return d.x;
+            }).strength(d => {
+                if (d.kind === "speaker") return 0.038;
+                if (d.kind === "topic") return 0.032;
+                return 0;
+            }));
+            simulation.force("y", d3.forceY(d => {
+                if (d.kind === "speaker") return d.anchorY;
+                if (d.kind === "topic") return topicTargetY(d);
+                return d.y;
+            }).strength(d => {
+                if (d.kind === "speaker") return 0.038;
+                if (d.kind === "topic") return 0.085;
+                return 0;
             }));
         }
 
-        // D3 物理シミュレーション初期化（お題＋スピーカーを同一シミュレーションで漂わせる）
+        // D3 物理シミュレーション（ゾーン内で衝突しながらふわふわ漂う）
         simulation = d3.forceSimulation([])
-            .force("center", d3.forceCenter(width / 2, height / 2))
-            .force("charge", d3.forceManyBody().strength(-40))
-            .force("collide", d3.forceCollide().radius(collideRadius).iterations(8))
+            .force("collide", d3.forceCollide().radius(collideRadius).iterations(10))
             .on("tick", ticked);
 
         // 固定タイトルと他要素が視覚的に重ならないよう、毎フレーム押し出す
@@ -260,8 +345,72 @@
             }
         }
 
+        const VIEWPORT_PAD = 8;
+
+        function topicViewportMargin(d) {
+            if (d.kind !== "topic") return 0;
+            if (d.isTalking) return d.r + 14;
+            if (!d.isActive) return d.r + 8;
+            return d.r + 10;
+        }
+
+        /** スピーカー（アイコン＋名前＋スポットライト）の中心から見た半幅・半高さ */
+        function speakerViewportHalfExtents(d) {
+            const glow = d.isSpotlight ? 16 : 4;
+            return {
+                halfW: d.r + 20 + glow,
+                halfH: d.r + 52 + glow
+            };
+        }
+
+        function clampTopicInViewport(n) {
+            const m = topicViewportMargin(n);
+            n.x = Math.max(m, Math.min(width - m, n.x));
+            n.y = Math.max(m, Math.min(height - m, n.y));
+        }
+
+        function clampSpeakerInViewport(n) {
+            if (n.r == null) return;
+            if (n.collideR == null) n.collideR = speakerCollideRadius(n.r);
+            const { halfW, halfH } = speakerViewportHalfExtents(n);
+            const pad = VIEWPORT_PAD;
+            n.x = Math.max(halfW + pad, Math.min(width - halfW - pad, n.x));
+            n.y = Math.max(halfH + pad, Math.min(height - halfH - pad, n.y));
+        }
+
+        function enforceViewportBounds() {
+            for (const n of topicNodes) clampTopicInViewport(n);
+            for (const n of speakerNodes) clampSpeakerInViewport(n);
+        }
+
+        function clampTopicToVerticalBand(n) {
+            if (!topicLayoutBands || n.kind !== "topic") return;
+            const band = topicLayoutBands[n.sizeTier];
+            const m = topicViewportMargin(n);
+            const yMin = band.top + m;
+            const yMax = band.bottom - m;
+            if (yMin <= yMax) {
+                n.y = Math.max(yMin, Math.min(yMax, n.y));
+            }
+        }
+
+        function applyAnchorDrift() {
+            for (const n of speakerNodes) {
+                if (n.anchorX == null) continue;
+                n.x += (n.anchorX - n.x) * 0.028;
+                n.y += (n.anchorY - n.y) * 0.028;
+            }
+            for (const n of topicNodes) {
+                n.x += (topicTargetX(n) - n.x) * 0.022;
+                n.y += (topicTargetY(n) - n.y) * 0.035;
+            }
+        }
+
         function ticked() {
             enforceTitleClearance();
+            applyAnchorDrift();
+            for (const n of topicNodes) clampTopicToVerticalBand(n);
+            enforceViewportBounds();
 
             topicsLayer.selectAll(".node")
                 .attr("transform", d => `translate(${d.x},${d.y})`);
@@ -275,7 +424,7 @@
             const text = String(title ?? "").trim();
             if (!text) return null;
 
-            const fontSize = Math.min(44, Math.max(28, width * 0.04));
+            const fontSize = Math.min(52, Math.max(34, width * 0.048));
             const { halfW, halfH } = programTitleBounds(text, fontSize);
             // 画面上部中央に固定（fx/fy）。長方形の上端が画面上端付近になるよう配置
             const topMargin = 14;
@@ -313,6 +462,8 @@
         function buildSpeakerNodes(speakerList, radius, spotlightBySlot) {
             return (speakerList || []).slice(0, 2).map((s, i) => {
                 const existing = speakerNodes.find(n => n.id === s.label);
+                const isSpotlight = Boolean(spotlightBySlot && spotlightBySlot[i]);
+                const anchor = speakerAnchorPosition(i, radius, isSpotlight);
                 return {
                     kind: "speaker",
                     id: s.label,
@@ -320,11 +471,13 @@
                     name: s.name,
                     iconUrl: s.iconUrl,
                     slot: i,
-                    isSpotlight: Boolean(spotlightBySlot && spotlightBySlot[i]),
+                    isSpotlight,
                     r: radius,
                     collideR: speakerCollideRadius(radius),
-                    x: existing ? existing.x : (i === 0 ? width * 0.28 : width * 0.72) + (Math.random() - 0.5) * 80,
-                    y: existing ? existing.y : height / 2 + (Math.random() - 0.5) * 120
+                    anchorX: anchor.x,
+                    anchorY: anchor.y,
+                    x: existing ? existing.x : anchor.x + (Math.random() - 0.5) * 28,
+                    y: existing ? existing.y : anchor.y + (Math.random() - 0.5) * 24
                 };
             });
         }
@@ -416,16 +569,20 @@
             return Math.max(4, Math.floor(usableWidth / charWidth));
         }
 
+        function maxLinesInCircle(radius, fontSize, lineHeightEm) {
+            return Math.max(1, Math.floor((radius * 1.7) / (fontSize * lineHeightEm)));
+        }
+
         // 丸の中に収まるようフォントサイズと行数を調整しつつ全文を折り返す
-        function layoutTextInCircle(text, radius, isTalking) {
-            let fontSize = isTalking ? 20 : 18;
-            const lineHeightEm = 1.22;
-            const minFontSize = 11;
+        function layoutTextInCircle(text, radius, isTalking, options = {}) {
+            const lineHeightEm = options.lineHeightEm ?? 1.22;
+            let fontSize = options.startFontSize ?? (isTalking ? 22 : 20);
+            const minFontSize = options.minFontSize ?? 12;
 
             while (fontSize >= minFontSize) {
                 const maxChars = estimateCharsPerLine(radius, fontSize);
                 const lines = wrapTextToLines(text, maxChars);
-                const maxLines = Math.max(1, Math.floor((radius * 1.7) / (fontSize * lineHeightEm)));
+                const maxLines = maxLinesInCircle(radius, fontSize, lineHeightEm);
                 if (lines.length <= maxLines) {
                     return { lines, fontSize, lineHeightEm };
                 }
@@ -440,6 +597,121 @@
             };
         }
 
+        function textFitsInCircle(text, radius, options = {}) {
+            const lineHeightEm = options.lineHeightEm ?? 1.22;
+            let fontSize = options.startFontSize ?? 20;
+            const minFontSize = options.minFontSize ?? 12;
+
+            while (fontSize >= minFontSize) {
+                const maxChars = estimateCharsPerLine(radius, fontSize);
+                const lines = wrapTextToLines(text, maxChars);
+                const maxLines = maxLinesInCircle(radius, fontSize, lineHeightEm);
+                if (lines.length <= maxLines) return true;
+                fontSize -= 1;
+            }
+
+            const maxChars = estimateCharsPerLine(radius, minFontSize);
+            const lines = wrapTextToLines(text, maxChars);
+            const maxLines = maxLinesInCircle(radius, minFontSize, lineHeightEm);
+            return lines.length <= maxLines;
+        }
+
+        /** 小＝旧中、中・大はそれに連動して一段階アップ */
+        function topicTextLayoutOptions(d) {
+            if (d.sizeTier === "small") {
+                return { startFontSize: 18, minFontSize: 11 };
+            }
+            if (d.sizeTier === "large") {
+                return { startFontSize: 22, minFontSize: 12 };
+            }
+            return { startFontSize: 20, minFontSize: 12 };
+        }
+
+        /** topics/topics.yaml（/api/topics-config）— 未読込時は 0.8 倍済みの既定値 */
+        const TOPICS_SIZE_FALLBACK = {
+            mediumRadiusMin: 56,
+            mediumRadiusMax: 88,
+            mediumRadiusBase: 288,
+            largeMediumScale: 1.35,
+            smallMaxRatio: 0.52,
+            smallMinRatio: 0.32,
+            smallDiameterScale: 2,
+            smallMinRadiusFloor: 38,
+            smallCapRadiusFloor: 45,
+            viewportEdgePadding: 24,
+            speakerAvatarRadiusMin: 70,
+            speakerAvatarRadiusMax: 110,
+            speakerAvatarRadiusBase: 360
+        };
+
+        let topicsSizeConfig = null;
+
+        function topicsSize() {
+            return topicsSizeConfig || TOPICS_SIZE_FALLBACK;
+        }
+
+        function inactiveTopicRadiusViewportMax() {
+            const pad = topicsSize().viewportEdgePadding;
+            return Math.min((width - pad) / 2, (height - pad) / 2);
+        }
+
+        /** 中：C=1 かつスポットライトなし */
+        function mediumTopicRadius(activeCount) {
+            const c = topicsSize();
+            const count = activeCount || 1;
+            return Math.max(
+                c.mediumRadiusMin,
+                Math.min(c.mediumRadiusMax, c.mediumRadiusBase / Math.sqrt(count))
+            );
+        }
+
+        /** 大：スポットライト（トーク中） */
+        function largeTopicRadius(mediumR) {
+            const c = topicsSize();
+            return Math.min(
+                inactiveTopicRadiusViewportMax(),
+                Math.round(mediumR * c.largeMediumScale)
+            );
+        }
+
+        /** 小：C≠1（中より小さく、全文が収まる半径） */
+        function computeSmallTopicRadius(text, mediumR) {
+            const c = topicsSize();
+            const scale = c.smallDiameterScale;
+            const cap = Math.min(
+                inactiveTopicRadiusViewportMax(),
+                Math.max(
+                    c.smallCapRadiusFloor,
+                    Math.floor(mediumR * c.smallMaxRatio * scale)
+                )
+            );
+            const minR = Math.max(
+                c.smallMinRadiusFloor,
+                Math.floor(mediumR * c.smallMinRatio * scale)
+            );
+            const textLayout = topicTextLayoutOptions({ sizeTier: "small" });
+            for (let r = minR; r <= cap; r++) {
+                if (textFitsInCircle(text, r, textLayout)) return r;
+            }
+            return cap;
+        }
+
+        function speakerAvatarRadius(activeCount) {
+            const c = topicsSize();
+            const count = activeCount || 1;
+            return Math.max(
+                c.speakerAvatarRadiusMin,
+                Math.min(c.speakerAvatarRadiusMax, c.speakerAvatarRadiusBase / Math.sqrt(count))
+            );
+        }
+
+        function topicNodeClass(d) {
+            const parts = ["node"];
+            if (d.isTalking) parts.push("talking");
+            if (!d.isActive) parts.push("inactive");
+            return parts.join(" ");
+        }
+
         // SVGテキスト要素に折り返した tspan を描画する
         function renderWrappedText(textSelection) {
             textSelection.each(function (d) {
@@ -449,7 +721,8 @@
                 el.attr("y", 0);
                 el.style("font-size", null);
 
-                const { lines, fontSize, lineHeightEm } = layoutTextInCircle(d.text, d.r, d.isTalking);
+                const layoutOpts = topicTextLayoutOptions(d);
+                const { lines, fontSize, lineHeightEm } = layoutTextInCircle(d.text, d.r, d.isTalking, layoutOpts);
                 if (lines.length === 0) return;
 
                 el.style("font-size", `${fontSize}px`);
@@ -466,32 +739,70 @@
 
         // データの更新・描画処理
         function updateVisualization(topics, programTitle, spotlightBySlot) {
-            // お題の数に応じて丸の半径(r)を変化（最小70px〜最大110px）
-            const count = topics.length || 1;
-            const radius = Math.max(70, Math.min(110, 360 / Math.sqrt(count)));
+            const activeTopics = topics.filter(t => t.isActive !== false);
+
+            const mediumRadius = mediumTopicRadius(activeTopics.length);
+            const speakerRadius = speakerAvatarRadius(activeTopics.length);
 
             programTitleNode = buildProgramTitleNode(programTitle);
+            refreshTopicLayoutBands();
 
-            topicNodes = topics.map(t => {
+            const topicMeta = topics.map(t => {
+                const isActive = t.isActive !== false;
+                const isTalking = Boolean(isActive && t.isTalking);
+                const sizeTier = topicSizeTier(isActive, isTalking);
+                return { t, isActive, isTalking, sizeTier };
+            });
+            const tierCounts = { large: 0, medium: 0, small: 0 };
+            topicMeta.forEach(m => { tierCounts[m.sizeTier] += 1; });
+            const tierCounters = { large: 0, medium: 0, small: 0 };
+
+            topicNodes = topicMeta.map(({ t, isActive, isTalking, sizeTier }) => {
                 const existing = topicNodes.find(n => n.id === t.id);
+                let r;
+                if (sizeTier === "small") {
+                    r = computeSmallTopicRadius(t.text, mediumRadius);
+                } else if (sizeTier === "large") {
+                    r = largeTopicRadius(mediumRadius);
+                } else {
+                    r = mediumRadius;
+                }
+
+                const tierIndex = tierCounters[sizeTier];
+                tierCounters[sizeTier] += 1;
+                const tierCount = tierCounts[sizeTier];
+
+                const layoutStub = { sizeTier, tierIndex, tierCount, r };
+                const tx = topicTargetX(layoutStub);
+                const ty = topicTargetY(layoutStub);
+
                 return {
                     kind: "topic",
                     id: t.id,
                     text: t.text,
-                    isTalking: t.isTalking,
-                    r: radius,
+                    isActive,
+                    isTalking,
+                    sizeTier,
+                    tierIndex,
+                    tierCount,
+                    r,
                     color: colorForTopicId(t.id),
-                    x: existing ? existing.x : width / 2 + (Math.random() - 0.5) * 100,
-                    y: existing ? existing.y : height / 2 + (Math.random() - 0.5) * 100
+                    x: existing ? existing.x : tx + (Math.random() - 0.5) * 36,
+                    y: existing ? existing.y : ty + (Math.random() - 0.5) * 28
                 };
             });
+            topicNodes.forEach(n => {
+                clampTopicToVerticalBand(n);
+                clampTopicInViewport(n);
+            });
 
-            speakerNodes = buildSpeakerNodes(speakers, radius, spotlightBySlot);
+            speakerNodes = buildSpeakerNodes(speakers, speakerRadius, spotlightBySlot);
+            speakerNodes.forEach(clampSpeakerInViewport);
             syncSimulationForces();
             simulation.alpha(0.3).restart();
 
             updateProgramTitleDom();
-            updateSpeakersDom(radius);
+            updateSpeakersDom(speakerRadius);
 
             const nodeSelection = topicsLayer.selectAll(".node")
                 .data(topicNodes, d => d.id);
@@ -504,7 +815,7 @@
 
             // 新規追加
             const enter = nodeSelection.enter().append("g")
-                .attr("class", d => `node ${d.isTalking ? 'talking' : ''}`)
+                .attr("class", topicNodeClass)
                 .style("opacity", 0);
 
             enter.append("circle")
@@ -517,10 +828,11 @@
 
             // 更新（新規＋既存要素の両方に適用）
             const merged = enter.merge(nodeSelection);
-            merged.attr("class", d => `node ${d.isTalking ? 'talking' : ''}`);
+            merged.attr("class", topicNodeClass);
             merged.select("circle")
                 .transition().duration(300)
-                .attr("r", d => d.r);
+                .attr("r", d => d.r)
+                .attr("fill", d => d.color);
 
             // テキスト描画の適用
             merged.select("text").call(renderWrappedText);
@@ -538,6 +850,16 @@
             }
         }
 
+        async function fetchTopicsSizeConfig() {
+            try {
+                const res = await fetch("/api/topics-config");
+                if (!res.ok) return;
+                topicsSizeConfig = await res.json();
+            } catch (e) {
+                console.error("Topics config fetch error:", e);
+            }
+        }
+
         const OFF_AIR_SPEAKER_RADIUS = 90;
 
         function updateOffAirScreen(data) {
@@ -550,17 +872,25 @@
 
         function updateOffAirSpeakers() {
             const radius = OFF_AIR_SPEAKER_RADIUS;
-            speakerNodes = (speakers || []).slice(0, 2).map((s, i) => ({
-                kind: "speaker",
-                id: s.label,
-                label: s.label,
-                name: s.name,
-                iconUrl: s.iconUrl,
-                slot: i,
-                r: radius,
-                x: i === 0 ? width * 0.22 : width * 0.78,
-                y: height / 2
-            }));
+            speakerNodes = (speakers || []).slice(0, 2).map((s, i) => {
+                const anchor = speakerAnchorPosition(i, radius, false);
+                return {
+                    kind: "speaker",
+                    id: s.label,
+                    label: s.label,
+                    name: s.name,
+                    iconUrl: s.iconUrl,
+                    slot: i,
+                    isSpotlight: false,
+                    r: radius,
+                    collideR: speakerCollideRadius(radius),
+                    anchorX: anchor.x,
+                    anchorY: anchor.y,
+                    x: anchor.x,
+                    y: anchor.y
+                };
+            });
+            speakerNodes.forEach(clampSpeakerInViewport);
 
             topicNodes = [];
             programTitleNode = null;
@@ -578,7 +908,8 @@
             try {
                 const [sheetsRes] = await Promise.all([
                     fetch("/api/sheets"),
-                    fetchSpeakers()
+                    fetchSpeakers(),
+                    fetchTopicsSizeConfig()
                 ]);
                 const data = await sheetsRes.json();
 

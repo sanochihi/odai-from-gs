@@ -80,12 +80,13 @@ export async function onRequest(context) {
             const isTalking = String(getVal(rowObj, COL.D)).trim() === "1";   // D列: トーク中
             const isCovered = String(getVal(rowObj, COL.E)).trim() === "1";   // E列: トーク済み
 
-            // B列にお題があり、C列=1、かつ E列(トーク済み)≠1 のものを追加
-            if (topicText && isCandidate && !isCovered) {
+            // B列にお題があり、E列(トーク済み)≠1 のものを追加（C列=1は通常表示、それ以外は小さく薄く表示）
+            if (topicText && !isCovered) {
                 topics.push({
                     id: id,
                     text: topicText,
-                    isTalking: isTalking
+                    isActive: isCandidate,
+                    isTalking: isCandidate && isTalking
                 });
             }
         }
